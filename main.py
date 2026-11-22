@@ -28,12 +28,12 @@ CANAL_DESTINO = "pegueicupom"
 # Se True, posta tambem cupons sem link do Fada dos Cupons (ex: iFood)
 POSTAR_MESMO_SEM_LINK = True
 
-# Nomes exatos das imagens padrao que voce vai subir no GitHub
+# Nomes exatos das imagens padrao no seu repositorio do GitHub
 IMAGENS_PADRAO = {
-    "mercadolivre": "cupom_ml.jpg",
-    "shopee": "cupom_shopee.jpg",
-    "amazon": "cupom_amazon.jpg",
-    "magalu": "cupom_magalu.jpg"
+    "mercadolivre": "cupom_ml.jpg.jpeg",
+    "shopee": "cupom_shopee.jpg.jpeg",
+    "amazon": "cupom_amazon.jpg.jpeg",
+    "magalu": "cupom_magalu.jpg.jpeg"
 }
 
 # ==========================================

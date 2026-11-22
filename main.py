@@ -133,8 +133,19 @@ def converter_link_individual(url_original):
             link_ml = f"{base}?{PARAMS_MELI}"
         return encurtar_com_nome_loja(link_ml, "MercadoLivre")
 
-    # 2. AMAZON
-    if any(d in u_low for d in ["amazon.com", "amzn.to", "amzlink.to", "a.co", "link.amazon"]):
+    # 2. MAGALU (verificada antes da Amazon para evitar conflitos)
+    if any(d in u_low for d in ["magazineluiza.com", "magazinevoce.com", "magalu.com", "maga.lu", "divulgador.magalu"]):
+        base = url_real.split("?")[0].split("#")[0]
+        if "magazinevoce.com.br/" in base.lower():
+            link_mgl = re.sub(r'magazinevoce\.com\.br/[^/]+', f'magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}', base, flags=re.IGNORECASE)
+        elif "magazineluiza.com.br/" in base.lower():
+            link_mgl = re.sub(r'(?:www\.)?magazineluiza\.com\.br', f'www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}', base, flags=re.IGNORECASE)
+        else:
+            link_mgl = f"https://www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}/"
+        return encurtar_com_nome_loja(link_mgl, "Magalu")
+
+    # 3. AMAZON (usando "://a.co/" para nao confundir com dominios terminados em "a.com")
+    if any(d in u_low for d in ["amazon.com", "amzn.to", "amzlink.to", "://a.co/", "link.amazon"]):
         m_asin = (
             re.search(r'/(?:dp|gp/product|gp/aw/d|d)/([A-Z0-9]{10})', url_real, re.IGNORECASE)
             or re.search(r'/(?:dp|gp/product)/([A-Z0-9]{10})', html_pag, re.IGNORECASE)
@@ -149,7 +160,7 @@ def converter_link_individual(url_original):
                 link_amz = f"{base}?linkCode=ll1&tag={MEU_ID_AMAZON}"
         return encurtar_com_nome_loja(link_amz, "Amazon")
 
-    # 3. SHOPEE
+    # 4. SHOPEE
     if any(d in u_low for d in ["shopee.com", "shp.ee"]):
         base = url_real.split("?")[0].split("#")[0]
         if "shopee.com.br" not in base.lower():
@@ -163,17 +174,6 @@ def converter_link_individual(url_original):
             f"&af_id={MEU_ID_SHOPEE}"
         )
         return encurtar_com_nome_loja(link_shp, "Shopee")
-
-    # 4. MAGALU
-    if any(d in u_low for d in ["magazineluiza.com", "magazinevoce.com", "magalu.com", "maga.lu", "divulgador.magalu"]):
-        base = url_real.split("?")[0].split("#")[0]
-        if "magazinevoce.com.br/" in base.lower():
-            link_mgl = re.sub(r'magazinevoce\.com\.br/[^/]+', f'magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}', base, flags=re.IGNORECASE)
-        elif "magazineluiza.com.br/" in base.lower():
-            link_mgl = re.sub(r'(?:www\.)?magazineluiza\.com\.br', f'www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}', base, flags=re.IGNORECASE)
-        else:
-            link_mgl = f"https://www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}/"
-        return encurtar_com_nome_loja(link_mgl, "Magalu")
 
     # 5. AWIN
     if "awin1.com/cread.php" in url_real.lower() and MEU_ID_AWIN:

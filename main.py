@@ -12,18 +12,29 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
 # ==========================================
-# 1. CREDENCIAIS (LIDAS DAS VARIAVEIS DO RENDER)
+# 1. CREDENCIAIS E CANAIS
 # ==========================================
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 STRING_SESSION = os.environ.get("STRING_SESSION", "")
 
-# Canais de Origem e Destino (sem o @)
-CANAL_ORIGEM = "fadadoscupons"
+# Canais monitorados: Fada dos Cupons + Afiliados e Criadores ML Brasil
+CANAL_FADA = "fadadoscupons"
+CANAL_AFILIADOS_ML = -1002098480505
+CANAIS_ORIGEM = [CANAL_FADA, CANAL_AFILIADOS_ML]
+
 CANAL_DESTINO = "pegueicupom"
 
-# Se True, posta tambem cupons sem link (como cupons do iFood)
+# Se True, posta tambem cupons sem link do Fada dos Cupons (ex: iFood)
 POSTAR_MESMO_SEM_LINK = True
+
+# Nomes exatos das imagens padrao que voce vai subir no GitHub
+IMAGENS_PADRAO = {
+    "mercadolivre": "cupom_ml.jpg",
+    "shopee": "cupom_shopee.jpg",
+    "amazon": "cupom_amazon.jpg",
+    "magalu": "cupom_magalu.jpg"
+}
 
 # ==========================================
 # 2. SEUS IDS DE AFILIADA
@@ -42,7 +53,7 @@ MEU_ID_AWIN = "1905004"
 ENCURTAR_COM_NOME_DA_LOJA = True
 
 # ==========================================
-# 3. MINI SERVIDOR FLASK (PARA O RENDER + CRON-JOB)
+# 3. MINI SERVIDOR FLASK (RENDER + CRON-JOB)
 # ==========================================
 app = Flask(__name__)
 
@@ -55,7 +66,7 @@ def rodar_flask():
     app.run(host="0.0.0.0", port=port)
 
 # ==========================================
-# 4. CONVERSOR DE LINKS DE AFILIADA
+# 4. CONVERSOR DE LINKS E DETECTOR DE LOJA
 # ==========================================
 def encurtar_com_nome_loja(url_longa, prefixo_loja):
     if not ENCURTAR_COM_NOME_DA_LOJA or not url_longa.startswith("http"):
@@ -131,9 +142,9 @@ def converter_link_individual(url_original):
             link_ml = f"https://www.mercadolivre.com.br/cupons?{PARAMS_MELI}"
         else:
             link_ml = f"{base}?{PARAMS_MELI}"
-        return encurtar_com_nome_loja(link_ml, "MercadoLivre")
+        return encurtar_com_nome_loja(link_ml, "MercadoLivre"), "mercadolivre"
 
-    # 2. MAGALU (verificada antes da Amazon para evitar conflitos)
+    # 2. MAGALU
     if any(d in u_low for d in ["magazineluiza.com", "magazinevoce.com", "magalu.com", "maga.lu", "divulgador.magalu"]):
         base = url_real.split("?")[0].split("#")[0]
         if "magazinevoce.com.br/" in base.lower():
@@ -142,9 +153,9 @@ def converter_link_individual(url_original):
             link_mgl = re.sub(r'(?:www\.)?magazineluiza\.com\.br', f'www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}', base, flags=re.IGNORECASE)
         else:
             link_mgl = f"https://www.magazinevoce.com.br/magazine{MAGALU_NOME_LOJA}/"
-        return encurtar_com_nome_loja(link_mgl, "Magalu")
+        return encurtar_com_nome_loja(link_mgl, "Magalu"), "magalu"
 
-    # 3. AMAZON (usando "://a.co/" para nao confundir com dominios terminados em "a.com")
+    # 3. AMAZON
     if any(d in u_low for d in ["amazon.com", "amzn.to", "amzlink.to", "://a.co/", "link.amazon"]):
         m_asin = (
             re.search(r'/(?:dp|gp/product|gp/aw/d|d)/([A-Z0-9]{10})', url_real, re.IGNORECASE)
@@ -158,7 +169,7 @@ def converter_link_individual(url_original):
                 link_amz = f"https://www.amazon.com.br/ofertas?linkCode=ll1&tag={MEU_ID_AMAZON}"
             else:
                 link_amz = f"{base}?linkCode=ll1&tag={MEU_ID_AMAZON}"
-        return encurtar_com_nome_loja(link_amz, "Amazon")
+        return encurtar_com_nome_loja(link_amz, "Amazon"), "amazon"
 
     # 4. SHOPEE
     if any(d in u_low for d in ["shopee.com", "shp.ee"]):
@@ -173,7 +184,7 @@ def converter_link_individual(url_original):
             f"&pid=affiliates"
             f"&af_id={MEU_ID_SHOPEE}"
         )
-        return encurtar_com_nome_loja(link_shp, "Shopee")
+        return encurtar_com_nome_loja(link_shp, "Shopee"), "shopee"
 
     # 5. AWIN
     if "awin1.com/cread.php" in url_real.lower() and MEU_ID_AWIN:
@@ -182,24 +193,37 @@ def converter_link_individual(url_original):
         else:
             sep = "&" if "?" in url_real else "?"
             link_aw = f"{url_real}{sep}awinaffid={MEU_ID_AWIN}"
-        return encurtar_com_nome_loja(link_aw, "Oferta")
+        return encurtar_com_nome_loja(link_aw, "Oferta"), ""
 
     # 6. ALIEXPRESS
     if any(d in u_low for d in ["aliexpress.com", "s.click.aliexpress", "ali.ski"]):
         base = url_real.split("?")[0]
-        return encurtar_com_nome_loja(f"{base}?trackingId={ALIEXPRESS_TRACKING_ID}", "AliExpress")
+        return encurtar_com_nome_loja(f"{base}?trackingId={ALIEXPRESS_TRACKING_ID}", "AliExpress"), ""
 
-    return url_original
+    return url_original, ""
+
+
+def identificar_loja_por_texto(texto):
+    t = (texto or "").lower()
+    if any(k in t for k in ["mercado livre", "meli", "mercadolivre"]):
+        return "mercadolivre"
+    if "shopee" in t:
+        return "shopee"
+    if "amazon" in t:
+        return "amazon"
+    if any(k in t for k in ["magalu", "magazine luiza"]):
+        return "magalu"
+    return ""
 
 
 def limpar_e_converter_mensagem(texto):
+    """Usada para mensagens do @fadadoscupons."""
     if not texto:
-        return "", False
+        return "", False, ""
 
     linhas_limpas = []
     for linha in texto.split("\n"):
         l_low = linha.lower()
-        # Ignora linhas de divulgacao do concorrente ou tag #anuncio
         if any(b in l_low for b in ["fadadoscupons", "fadapromos", "t.me/", "chat.whatsapp.com", "#anúncio", "#anuncio"]):
             continue
         linha_mod = re.sub(r'fada\s+dos\s+cupons', 'Peguei Cupom', linha, flags=re.IGNORECASE)
@@ -207,16 +231,85 @@ def limpar_e_converter_mensagem(texto):
 
     texto_limpo = "\n".join(linhas_limpas).strip()
 
-    # Encontra e converte todos os links da mensagem
     padrao_url = r'(https?://[^\s\)\]\>\"\'`<]+)'
     urls = re.findall(padrao_url, texto_limpo)
     tem_link = len(urls) > 0
+    loja_detectada = ""
 
     for u in set(urls):
-        novo_link = converter_link_individual(u)
+        novo_link, loja = converter_link_individual(u)
+        if loja and not loja_detectada:
+            loja_detectada = loja
         texto_limpo = texto_limpo.replace(u, novo_link)
 
-    return texto_limpo, tem_link
+    if not loja_detectada:
+        loja_detectada = identificar_loja_por_texto(texto_limpo)
+
+    return texto_limpo, tem_link, loja_detectada
+
+
+def formatar_cupom_afiliados_ml(texto):
+    """Filtra e limpa mensagens do canal Afiliados e Criadores Mercado Livre Brasil."""
+    if not texto:
+        return "", False
+
+    t_low = texto.lower()
+    # Trava: so aceita se realmente for postagem de cupom
+    eh_cupom = (
+        any(s in t_low for s in ["🎟", "compra mínima", "compra minima", "desconto máx", "desconto max"])
+        and ("off" in t_low or "%" in t_low or "r$" in t_low)
+    )
+    if not eh_cupom:
+        return "", False
+
+    # Extrai apenas as linhas uteis do cupom (nome, %, compra minima, limite, validade)
+    linhas_cupom = []
+    for linha in texto.split("\n"):
+        l = linha.strip()
+        l_low = l.lower()
+        if not l or "http" in l_low:
+            continue
+        if any(k in l_low for k in [
+            "🎟", "compra mínima", "compra minima", "desconto máx", "desconto max",
+            "válido até", "valido ate", "limite", "acima de", "produtos elegíveis",
+            "produtos elegiveis", "👉"
+        ]):
+            linhas_cupom.append(l)
+
+    if not linhas_cupom:
+        return "", False
+
+    # Tenta aproveitar o link da mensagem se for de produto/lista ML; senao usa a central de cupons
+    padrao_url = r'(https?://[^\s\)\]\>\"\'`<]+)'
+    urls = re.findall(padrao_url, texto)
+    link_final = ""
+    for u in urls:
+        convertido, loja = converter_link_individual(u)
+        if loja == "mercadolivre":
+            link_final = convertido
+            break
+
+    if not link_final:
+        link_final = encurtar_com_nome_loja(
+            f"https://www.mercadolivre.com.br/cupons?{PARAMS_MELI}",
+            "MercadoLivre"
+        )
+
+    bloco_info = "\n".join(linhas_cupom)
+    mensagem_pronta = (
+        f"🔥 Cupom Mercado Livre Liberado!\n\n"
+        f"{bloco_info}\n\n"
+        f"✅ Resgate aqui:\n{link_final}"
+    )
+    return mensagem_pronta, True
+
+
+def obter_imagem_padrao(loja):
+    """Retorna o caminho da imagem padrao se ela existir no repositorio."""
+    arquivo = IMAGENS_PADRAO.get(loja, "")
+    if arquivo and os.path.exists(arquivo):
+        return arquivo
+    return None
 
 
 # ==========================================
@@ -229,22 +322,39 @@ async def iniciar_robo_telegram():
 
     client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
     await client.start()
-    print(f"✅ Conectado! Monitorando @{CANAL_ORIGEM} -> enviando para @{CANAL_DESTINO}")
+    print(f"✅ Conectado! Monitorando @{CANAL_FADA} e Afiliados ML -> enviando para @{CANAL_DESTINO}")
 
-    @client.on(events.NewMessage(chats=CANAL_ORIGEM))
+    @client.on(events.NewMessage(chats=CANAIS_ORIGEM))
     async def ao_receber_cupom(event):
         try:
             texto_original = event.message.message or ""
-            # Executa a conversao de links sem travar o Telethon
-            texto_final, tem_link = await asyncio.to_thread(limpar_e_converter_mensagem, texto_original)
 
-            if not texto_final and not event.message.media:
-                return
-            if not tem_link and not POSTAR_MESMO_SEM_LINK:
-                return
+            # 1. Se veio do canal Afiliados e Criadores Mercado Livre
+            if event.chat_id == CANAL_AFILIADOS_ML:
+                texto_final, valido = await asyncio.to_thread(formatar_cupom_afiliados_ml, texto_original)
+                if not valido:
+                    return
+                loja_detectada = "mercadolivre"
+                usar_midia_original = False
+            else:
+                # 2. Se veio do @fadadoscupons
+                texto_final, tem_link, loja_detectada = await asyncio.to_thread(limpar_e_converter_mensagem, texto_original)
+                if not texto_final and not event.message.media:
+                    return
+                if not tem_link and not POSTAR_MESMO_SEM_LINK:
+                    return
+                usar_midia_original = True
 
-            # Envia para o seu canal (reaproveitando a foto/midia original sem "Encaminhado de")
-            if event.message.media:
+            # Escolhe a sua imagem padrao da loja (se existir no GitHub)
+            imagem_padrao = obter_imagem_padrao(loja_detectada)
+
+            if imagem_padrao:
+                await client.send_message(
+                    CANAL_DESTINO,
+                    texto_final,
+                    file=imagem_padrao
+                )
+            elif usar_midia_original and event.message.media:
                 await client.send_message(
                     CANAL_DESTINO,
                     texto_final,
@@ -257,7 +367,7 @@ async def iniciar_robo_telegram():
                     link_preview=True
                 )
 
-            print(f"🚀 Cupom enviado para @{CANAL_DESTINO}!")
+            print(f"🚀 Cupom ({loja_detectada or 'geral'}) enviado para @{CANAL_DESTINO}!")
         except Exception as e:
             print("❌ Erro ao processar cupom:", str(e))
 
@@ -265,9 +375,6 @@ async def iniciar_robo_telegram():
 
 
 if __name__ == "__main__":
-    # 1. Liga o servidor Flask em paralelo para o Render e o Cron-job
     t_flask = threading.Thread(target=rodar_flask, daemon=True)
     t_flask.start()
-
-    # 2. Liga o robo do Telegram
     asyncio.run(iniciar_robo_telegram())
